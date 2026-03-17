@@ -32,7 +32,9 @@ class EstateDatabase:
     @contextmanager
     def get_connection(self):
         """Context manager for database connections"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -186,9 +188,13 @@ class EstateDatabase:
                 ))
                 
                 row_id = cursor.lastrowid
-                
-                # Store hash for duplicate detection
-                self.store_hash(prop_hash, property_data.get('property_id'), property_data.get('source_url'))
+
+                # Store hash inside the same connection (avoids "database is locked")
+                cursor.execute(f'''
+                    INSERT OR IGNORE INTO {TABLE_DUPLICATE_HASHES}
+                    (property_hash, property_id, source_url)
+                    VALUES (?, ?, ?)
+                ''', (prop_hash, property_data.get('property_id'), property_data.get('source_url')))
                 
                 logger.info(f"Property inserted: {property_data.get('source_url')}")
                 return row_id

@@ -71,51 +71,27 @@ SITE_CONFIGS: Dict[str, Dict] = {
             ],
         },
     },
-    # batdongsan: uses React, selectors from known DOM structure
+    # batdongsan: confirmed live selectors from HTML inspection
     "batdongsan": {
-        "urls": ["https://batdongsan.com.vn/nha-dat-ban"],
+        "urls": [
+            "https://batdongsan.com.vn/nha-dat-ban",
+            "https://batdongsan.com.vn/can-ho-chung-cu",
+        ],
         "schema": {
             "name": "properties",
             "baseSelector": "div.js__card",
             "fields": [
-                {"name": "title",    "selector": "span.js__card-title",       "type": "text"},
-                {"name": "price",    "selector": "span.re__card-config-price", "type": "text"},
-                {"name": "area",     "selector": "span.re__card-config-area",  "type": "text"},
-                {"name": "location", "selector": "div.re__card-location span", "type": "text"},
-                {"name": "url",      "selector": "a.js__product-link-for-product-id", "type": "attribute", "attribute": "href"},
+                {"name": "title",    "selector": "span.js__card-title",        "type": "text"},
+                {"name": "price",    "selector": "span.re__card-config-price",  "type": "text"},
+                {"name": "area",     "selector": "span.re__card-config-area",   "type": "text"},
+                {"name": "location", "selector": "div.re__card-location span",  "type": "text"},
+                {"name": "url",      "selector": "a.js__product-link-for-product-id",
+                                     "type": "attribute", "attribute": "href"},
             ],
         },
     },
-    # meeyland: card-based layout
-    "meeyland": {
-        "urls": ["https://meeyland.com/mua-ban-nha-dat/"],
-        "schema": {
-            "name": "properties",
-            "baseSelector": "div.card-item",
-            "fields": [
-                {"name": "title",    "selector": "h3.card-title, h2.card-title",  "type": "text"},
-                {"name": "price",    "selector": "span.price",                     "type": "text"},
-                {"name": "area",     "selector": "span.area",                      "type": "text"},
-                {"name": "location", "selector": "span.location",                  "type": "text"},
-                {"name": "url",      "selector": "a.card-link, a",                 "type": "attribute", "attribute": "href"},
-            ],
-        },
-    },
-    # nha.vn: product-item layout
-    "nha": {
-        "urls": ["https://nha.vn/mua-ban"],
-        "schema": {
-            "name": "properties",
-            "baseSelector": "div.product-item",
-            "fields": [
-                {"name": "title",    "selector": "h3, h2",             "type": "text"},
-                {"name": "price",    "selector": ".price",             "type": "text"},
-                {"name": "area",     "selector": ".area, .dien-tich",  "type": "text"},
-                {"name": "location", "selector": ".location",          "type": "text"},
-                {"name": "url",      "selector": "a",                  "type": "attribute", "attribute": "href"},
-            ],
-        },
-    },
+    # NOTE: meeyland.com — times out (server blocks headless), removed for now
+    # NOTE: nha.vn       — ERR_ADDRESS_UNREACHABLE (domain down), removed for now
 }
 
 
