@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  estate-crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: estate-crawler
+    
+    # Volume mappings
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.py:/app/config.py
+      - ./.env:/app/.env:ro
+    
+    # Environment variables
+    environment:
+      - DATABASE_PATH=/app/data/estate_crawler.db
+      - LOG_DIR=/app/logs
+      - DATA_DIR=/app/data
+      - LOG_LEVEL=INFO
+      - SCHEDULER_ENABLED=True
+      - SCHEDULER_INTERVAL_HOURS=48
+      - REQUEST_TIMEOUT=30
+      - RETRY_ATTEMPTS=3
+      - RATE_LIMIT_DELAY=2
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/estate_crawler.db').execute('SELECT 1')"]
+      interval: 5m
+      timeout: 1m
+      retries: 3
+      start_period: 30s
+    
+    # Network
+    networks:
+      - estate-network
+
+volumes:
+  estate-data:
+  estate-logs:
+
+networks:
+  estate-network:
+    driver: bridge

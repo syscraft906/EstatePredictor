@@ -1,0 +1,37 @@
+# Bang Gia Dat - Price Guide System Requirements
+
+# Core dependencies
+requests>=2.28.0          # HTTP requests for web scraping
+beautifulsoup4>=4.11.0    # HTML parsing
+
+# Optional but recommended
+pandas>=1.3.0             # Data manipulation and CSV/JSON handling
+numpy>=1.21.0             # Numerical operations
+lxml>=4.9.0               # Alternative HTML parser (faster than html.parser)
+
+# For advanced scraping (if needed)
+selenium>=4.0.0           # Headless browser for JavaScript-heavy sites
+playwright>=1.30.0        # Alternative browser automation
+
+# For scheduled updates (optional)
+APScheduler>=3.9.0        # Job scheduling
+python-cron>=0.4.0        # Cron expression parser
+
+# For data validation (optional)
+pydantic>=1.8.0           # Data validation using Python type hints
+marshmallow>=3.13.0       # Object serialization/deserialization
+
+# Testing
+pytest>=7.0.0             # Testing framework
+pytest-cov>=3.0.0         # Coverage reports
+responses>=0.20.0         # Mock HTTP responses
+
+# Development
+black>=22.0.0             # Code formatter
+flake8>=4.0.0             # Code linter
+mypy>=0.950               # Static type checker
+isort>=5.10.0             # Import sorter
+
+# Documentation (optional)
+sphinx>=4.5.0             # Documentation generator
+sphinx-rtd-theme>=1.0.0   # ReadTheDocs theme

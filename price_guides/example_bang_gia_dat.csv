@@ -1,0 +1,27 @@
+id,source,province,district,ward,street,property_type,min_price,max_price,avg_price,min_price_per_m2,max_price_per_m2,avg_price_per_m2,date_recorded,sample_size,confidence_score,price_trend
+guland_ha_noi_hoan_kiem_apartment_20260315,guland.vn,Hà Nội,Hoàn Kiếm,Tràng Tiền,,apartment,3000000000,8000000000,5500000000,30000000,80000000,55000000,2026-03-15T10:30:00,150,0.85,up
+guland_ha_noi_hoan_kiem_house_20260315,guland.vn,Hà Nội,Hoàn Kiếm,,,house,8000000000,20000000000,14000000000,25000000,60000000,42500000,2026-03-15T10:30:00,85,0.78,stable
+guland_ha_noi_ba_dinh_apartment_20260314,guland.vn,Hà Nội,Ba Đình,Liễu Giai,,apartment,2500000000,6500000000,4500000000,28000000,72000000,50000000,2026-03-14T14:15:00,120,0.82,up
+guland_ha_noi_ba_dinh_land_20260314,guland.vn,Hà Nội,Ba Đình,,,land,5000000000,15000000000,10000000000,35000000,85000000,60000000,2026-03-14T14:15:00,95,0.75,up
+batdongsan_ha_noi_hoan_kiem_apartment_20260316,batdongsan.com.vn,Hà Nội,Hoàn Kiếm,,Phố Cổ,apartment,3200000000,7800000000,5500000000,32000000,78000000,55000000,2026-03-16T09:00:00,200,0.88,up
+batdongsan_ha_noi_ba_dinh_apartment_20260316,batdongsan.com.vn,Hà Nội,Ba Đình,,Phố Huế,apartment,2700000000,6300000000,4500000000,30000000,70000000,50000000,2026-03-16T09:00:00,180,0.85,stable
+meeyland_ha_noi_dong_da_apartment_20260313,meeyland.com,Hà Nội,Đống Đa,Láng Hạ,,apartment,2800000000,6800000000,4800000000,31000000,76000000,53500000,2026-03-13T11:45:00,140,0.81,up
+meeyland_ha_noi_thanh_xuan_office_20260313,meeyland.com,Hà Nội,Thanh Xuân,Thanh Xuân Trung,,office,3500000000,9500000000,6500000000,25000000,68000000,46500000,2026-03-13T11:45:00,70,0.72,stable
+guland_hcm_district1_apartment_20260315,guland.vn,TP. Hồ Chí Minh,Quận 1,Bến Nghé,,apartment,5000000000,15000000000,10000000000,40000000,120000000,80000000,2026-03-15T10:30:00,180,0.87,up
+guland_hcm_district1_land_20260315,guland.vn,TP. Hồ Chí Minh,Quận 1,,,land,10000000000,35000000000,22500000000,80000000,280000000,180000000,2026-03-15T10:30:00,65,0.73,up
+guland_hcm_district3_apartment_20260314,guland.vn,TP. Hồ Chí Minh,Quận 3,Bình Thạnh,,apartment,4500000000,13000000000,8750000000,38000000,110000000,74000000,2026-03-14T14:15:00,160,0.84,stable
+batdongsan_hcm_district1_apartment_20260316,batdongsan.com.vn,TP. Hồ Chí Minh,Quận 1,,Nguễn Huệ,apartment,5200000000,14800000000,10000000000,42000000,118000000,80000000,2026-03-16T09:00:00,220,0.89,up
+batdongsan_hcm_district7_apartment_20260316,batdongsan.com.vn,TP. Hồ Chí Minh,Quận 7,Tân Hưng,,apartment,3500000000,9500000000,6500000000,35000000,95000000,65000000,2026-03-16T09:00:00,175,0.83,up
+meeyland_hcm_district2_residential_20260313,meeyland.com,TP. Hồ Chí Minh,Quận 2,Bình Thạnh,,apartment,3800000000,10200000000,7000000000,38000000,102000000,70000000,2026-03-13T11:45:00,150,0.80,up
+meeyland_hcm_binh_thanh_commercial_20260313,meeyland.com,TP. Hồ Chí Minh,Bình Thạnh,Bình Thạnh Tây,,retail,2500000000,8000000000,5250000000,25000000,80000000,52500000,2026-03-13T11:45:00,90,0.74,stable
+onehousing_ha_noi_cau_giay_apartment_20260312,onehousing.vn,Hà Nội,Cầu Giấy,Nghĩa Đô,,apartment,3200000000,8200000000,5700000000,32000000,82000000,57000000,2026-03-12T08:20:00,130,0.79,up
+onehousing_ha_noi_tay_ho_house_20260312,onehousing.vn,Hà Nội,Tây Hồ,Quảng An,,house,10000000000,30000000000,20000000000,35000000,105000000,70000000,2026-03-12T08:20:00,80,0.76,stable
+onehousing_hcm_phu_nhuan_apartment_20260311,onehousing.vn,TP. Hồ Chí Minh,Phú Nhuận,Phú Nhuận,,apartment,4200000000,11800000000,8000000000,42000000,118000000,80000000,2026-03-11T15:30:00,140,0.81,up
+onehousing_hcm_go_vap_apartment_20260311,onehousing.vn,TP. Hồ Chí Minh,Gò Vấp,Gò Vấp,,apartment,2500000000,7500000000,5000000000,25000000,75000000,50000000,2026-03-11T15:30:00,120,0.77,up
+guland_da_nang_hai_chau_apartment_20260310,guland.vn,Đà Nẵng,Hải Châu,Phước Mỹ,,apartment,1500000000,4500000000,3000000000,20000000,60000000,40000000,2026-03-10T12:00:00,75,0.68,stable
+guland_da_nang_thanh_khe_house_20260310,guland.vn,Đà Nẵng,Thanh Khê,Thanh Khê Tây,,house,2500000000,8000000000,5250000000,18000000,58000000,38000000,2026-03-10T12:00:00,60,0.65,down
+batdongsan_da_nang_hai_chau_apartment_20260309,batdongsan.com.vn,Đà Nẵng,Hải Châu,,Bàn Cờ,apartment,1600000000,4400000000,3000000000,21000000,59000000,40000000,2026-03-09T10:15:00,85,0.70,stable
+guland_binh_duong_thu_dau_mot_apartment_20260308,guland.vn,Bình Dương,Thủ Dầu Một,Tân Định,,apartment,1200000000,3600000000,2400000000,15000000,45000000,30000000,2026-03-08T09:45:00,95,0.72,up
+batdongsan_binh_duong_thu_dau_mot_land_20260308,batdongsan.com.vn,Bình Dương,Thủ Dầu Một,,Tân An,land,2000000000,6000000000,4000000000,10000000,30000000,20000000,2026-03-08T09:45:00,110,0.75,up
+guland_can_tho_ninh_kieu_apartment_20260307,guland.vn,Cần Thơ,Ninh Kiều,Cái Khế,,apartment,1000000000,3500000000,2250000000,12000000,42000000,27000000,2026-03-07T14:30:00,80,0.69,stable
+batdongsan_can_tho_ninh_kieu_house_20260307,batdongsan.com.vn,Cần Thơ,Ninh Kiều,,Ngô Gia Tự,house,2500000000,7500000000,5000000000,14000000,43000000,28500000,2026-03-07T14:30:00,70,0.67,stable
