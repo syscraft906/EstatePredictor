@@ -1,533 +1,285 @@
 """
-Main Web Scraper for Vietnamese Real Estate
-Handles multi-domain scraping with BeautifulSoup and Selenium support
+Vietnam Real Estate Scraper — powered by crawl4ai
+Stealth browser crawling to bypass anti-bot protection
 """
 
+import asyncio
+import json
 import logging
-import requests
-import time
-import random
-from typing import List, Dict, Optional
+import os
+import re
+import warnings
+from dataclasses import dataclass, field
 from datetime import datetime
-from abc import ABC, abstractmethod
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from typing import Dict, List, Optional
+
+warnings.filterwarnings("ignore")
+
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
 
 from config import (
-    PRIORITY_DOMAINS, SECONDARY_DOMAINS, USER_AGENTS, REQUEST_TIMEOUT,
-    RETRY_ATTEMPTS, RETRY_DELAY, RATE_LIMIT_DELAY, AMENITY_KEYWORDS,
-    LOG_LEVEL, LOG_DIR, LOG_FILE_NAME
+    LOG_DIR, LOG_FILE_NAME, LOG_LEVEL,
+    RETRY_ATTEMPTS as MAX_RETRIES,
+    RATE_LIMIT_DELAY as REQUEST_DELAY,
 )
-from database import EstateDatabase
+from database import EstateDatabase, get_database
 
-# Setup logging
+MAX_PAGES_PER_DOMAIN = 2  # URLs per domain per run
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(f'{LOG_DIR}/{LOG_FILE_NAME}'),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(),
+        logging.FileHandler(f"{LOG_DIR}/{LOG_FILE_NAME}"),
+    ],
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("scraper")
+
+# ── Browser config (stealth) ──────────────────────────────────────────────────
+BROWSER_CONFIG = BrowserConfig(
+    browser_type="chromium",
+    headless=True,
+    verbose=False,
+    extra_args=[
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+    ],
+)
+
+# ── Per-site CSS schemas ──────────────────────────────────────────────────────
+SITE_CONFIGS: Dict[str, Dict] = {
+    # alonhadat: confirmed live selectors from HTML inspection
+    "alonhadat": {
+        "urls": [
+            "https://alonhadat.com.vn/can-ban-nha-dat",
+            "https://alonhadat.com.vn/can-ban-nha-dat/trang--2",
+        ],
+        "schema": {
+            "name": "properties",
+            "baseSelector": "article.property-item",
+            "fields": [
+                {"name": "title",    "selector": "h3.property-title",   "type": "text"},
+                {"name": "price",    "selector": "span.price strong",    "type": "text"},
+                {"name": "area",     "selector": "span.square",          "type": "text"},
+                {"name": "location", "selector": "span.address",         "type": "text"},
+                {"name": "url",      "selector": "a.link",               "type": "attribute", "attribute": "href"},
+            ],
+        },
+    },
+    # batdongsan: uses React, selectors from known DOM structure
+    "batdongsan": {
+        "urls": ["https://batdongsan.com.vn/nha-dat-ban"],
+        "schema": {
+            "name": "properties",
+            "baseSelector": "div.js__card",
+            "fields": [
+                {"name": "title",    "selector": "span.js__card-title",       "type": "text"},
+                {"name": "price",    "selector": "span.re__card-config-price", "type": "text"},
+                {"name": "area",     "selector": "span.re__card-config-area",  "type": "text"},
+                {"name": "location", "selector": "div.re__card-location span", "type": "text"},
+                {"name": "url",      "selector": "a.js__product-link-for-product-id", "type": "attribute", "attribute": "href"},
+            ],
+        },
+    },
+    # meeyland: card-based layout
+    "meeyland": {
+        "urls": ["https://meeyland.com/mua-ban-nha-dat/"],
+        "schema": {
+            "name": "properties",
+            "baseSelector": "div.card-item",
+            "fields": [
+                {"name": "title",    "selector": "h3.card-title, h2.card-title",  "type": "text"},
+                {"name": "price",    "selector": "span.price",                     "type": "text"},
+                {"name": "area",     "selector": "span.area",                      "type": "text"},
+                {"name": "location", "selector": "span.location",                  "type": "text"},
+                {"name": "url",      "selector": "a.card-link, a",                 "type": "attribute", "attribute": "href"},
+            ],
+        },
+    },
+    # nha.vn: product-item layout
+    "nha": {
+        "urls": ["https://nha.vn/mua-ban"],
+        "schema": {
+            "name": "properties",
+            "baseSelector": "div.product-item",
+            "fields": [
+                {"name": "title",    "selector": "h3, h2",             "type": "text"},
+                {"name": "price",    "selector": ".price",             "type": "text"},
+                {"name": "area",     "selector": ".area, .dien-tich",  "type": "text"},
+                {"name": "location", "selector": ".location",          "type": "text"},
+                {"name": "url",      "selector": "a",                  "type": "attribute", "attribute": "href"},
+            ],
+        },
+    },
+}
 
 
-class BaseScraper(ABC):
-    """Base class for all scrapers"""
-    
-    def __init__(self, domain_config: Dict, database: EstateDatabase):
-        """Initialize scraper with domain config"""
-        self.domain_config = domain_config
-        self.database = database
-        self.domain_name = list(PRIORITY_DOMAINS.keys())[
-            list([v.get('url') for v in PRIORITY_DOMAINS.values()]).index(domain_config['url'])
-        ] if domain_config['url'] in [v.get('url') for v in PRIORITY_DOMAINS.values()] else 'unknown'
-        self.session = self._create_session()
-    
-    def _create_session(self) -> requests.Session:
-        """Create requests session with retry logic"""
-        session = requests.Session()
-        session.headers.update({'User-Agent': random.choice(USER_AGENTS)})
-        return session
-    
-    def _get_with_retry(self, url: str, **kwargs) -> Optional[requests.Response]:
-        """Get URL with retry logic"""
-        for attempt in range(RETRY_ATTEMPTS):
-            try:
-                time.sleep(RATE_LIMIT_DELAY)  # Rate limiting
-                response = self.session.get(url, timeout=REQUEST_TIMEOUT, **kwargs)
-                response.raise_for_status()
-                return response
-            except requests.RequestException as e:
-                logger.warning(f"Attempt {attempt + 1}/{RETRY_ATTEMPTS} failed for {url}: {e}")
-                if attempt < RETRY_ATTEMPTS - 1:
-                    time.sleep(RETRY_DELAY)
-                else:
-                    logger.error(f"Failed to fetch {url} after {RETRY_ATTEMPTS} attempts")
-                    return None
-    
-    def fetch_page(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch and parse a page"""
-        response = self._get_with_retry(url)
-        if response:
-            return BeautifulSoup(response.content, 'html.parser')
-        return None
-    
-    @abstractmethod
-    def scrape_listings(self) -> List[Dict]:
-        """Scrape listings from the domain"""
-        pass
-    
-    @abstractmethod
-    def parse_property(self, item: any) -> Optional[Dict]:
-        """Parse a property item"""
-        pass
-    
-    def extract_amenities(self, text: str) -> List[str]:
-        """Extract amenities from text"""
-        amenities = []
-        if not text:
-            return amenities
-        
-        text_lower = text.lower()
-        for amenity, keywords in AMENITY_KEYWORDS.items():
-            if any(keyword in text_lower for keyword in keywords):
-                amenities.append(amenity)
-        
-        return amenities
-    
-    def parse_price(self, price_str: str) -> Optional[int]:
-        """Parse price string to integer VND"""
-        if not price_str:
-            return None
-        
-        try:
-            price_str = price_str.lower().strip()
-            
-            # Remove non-numeric characters except . and ,
-            clean_price = ''.join(c for c in price_str if c.isdigit() or c in '.,')
-            
-            # Handle different separators
-            if ',' in clean_price and '.' in clean_price:
-                # Determine which is thousands and which is decimal
-                if clean_price.rindex(',') > clean_price.rindex('.'):
-                    clean_price = clean_price.replace('.', '').replace(',', '')
-                else:
-                    clean_price = clean_price.replace(',', '').replace('.', '')
-            elif ',' in clean_price:
-                clean_price = clean_price.replace(',', '')
-            elif '.' in clean_price:
-                clean_price = clean_price.replace('.', '')
-            
-            price = int(clean_price) if clean_price else None
-            
-            # If price is in billions/millions, it's likely VND
-            return price if price and price < 100000000000 else None
-        except Exception as e:
-            logger.debug(f"Error parsing price '{price_str}': {e}")
-            return None
-    
-    def parse_area(self, area_str: str) -> Optional[float]:
-        """Parse area string to float in square meters"""
-        if not area_str:
-            return None
-        
-        try:
-            area_str = area_str.lower().strip()
-            # Extract numbers
-            clean_area = ''.join(c for c in area_str if c.isdigit() or c in '.,')
-            
-            if ',' in clean_area and '.' in clean_area:
-                if clean_area.rindex(',') > clean_area.rindex('.'):
-                    clean_area = clean_area.replace('.', '').replace(',', '.')
-                else:
-                    clean_area = clean_area.replace(',', '')
-            else:
-                clean_area = clean_area.replace(',', '.')
-            
-            return float(clean_area) if clean_area else None
-        except Exception as e:
-            logger.debug(f"Error parsing area '{area_str}': {e}")
-            return None
+# ── Result ────────────────────────────────────────────────────────────────────
+@dataclass
+class ScrapeResult:
+    domain: str
+    added: int = 0
+    duplicates: int = 0
+    errors: int = 0
+    duration: float = 0.0
 
 
-class OneHousingScraper(BaseScraper):
-    """Scraper for onehousing.vn"""
-    
-    def scrape_listings(self) -> List[Dict]:
-        """Scrape listings from OneHousing"""
-        listings = []
-        try:
-            url = self.domain_config['search_url']
-            soup = self.fetch_page(url)
-            
-            if not soup:
-                return listings
-            
-            # Find property listing containers (adjust selector as needed)
-            property_items = soup.find_all('div', class_='property-item')
-            
-            logger.info(f"Found {len(property_items)} properties on OneHousing")
-            
-            for item in property_items:
-                prop = self.parse_property(item)
-                if prop:
-                    listings.append(prop)
-            
-            return listings
-        except Exception as e:
-            logger.error(f"Error scraping OneHousing: {e}")
-            return listings
-    
-    def parse_property(self, item) -> Optional[Dict]:
-        """Parse property from OneHousing listing item"""
-        try:
-            # Extract basic info
-            title_elem = item.find('h2', class_='property-title')
-            title = title_elem.get_text(strip=True) if title_elem else None
-            
-            if not title:
-                return None
-            
-            # URL
-            link_elem = item.find('a', class_='property-link')
-            url = urljoin(self.domain_config['url'], link_elem['href']) if link_elem else None
-            
-            # Price
-            price_elem = item.find('span', class_='property-price')
-            price_str = price_elem.get_text(strip=True) if price_elem else None
-            price = self.parse_price(price_str) if price_str else None
-            
-            # Location
-            location_elem = item.find('span', class_='property-location')
-            location = location_elem.get_text(strip=True) if location_elem else None
-            
-            # Area
-            area_elem = item.find('span', class_='property-area')
-            area_str = area_elem.get_text(strip=True) if area_elem else None
-            area = self.parse_area(area_str) if area_str else None
-            
-            # Description (for amenities)
-            desc_elem = item.find('p', class_='property-description')
-            description = desc_elem.get_text(strip=True) if desc_elem else None
-            
-            return {
-                'property_id': self._extract_id_from_url(url) if url else None,
-                'source_domain': 'onehousing.vn',
-                'source_url': url,
-                'title': title,
-                'description': description,
-                'price_vnd': price,
-                'price_original': price_str,
-                'location_address': location,
-                'area_sqm': area,
-                'amenities': self.extract_amenities(description or ''),
-                'listing_date': datetime.now().isoformat(),
-            }
-        except Exception as e:
-            logger.debug(f"Error parsing OneHousing property: {e}")
-            return None
-    
-    @staticmethod
-    def _extract_id_from_url(url: str) -> Optional[str]:
-        """Extract property ID from URL"""
-        try:
-            # Extract ID from URL path (adjust based on actual URL structure)
-            parts = urlparse(url).path.split('/')
-            return parts[-1] if parts else None
-        except:
-            return None
+# ── Scraper ───────────────────────────────────────────────────────────────────
+class Crawl4AIScraper:
+    def __init__(self, db: EstateDatabase):
+        self.db = db
+
+    async def scrape_domain(self, domain_key: str) -> ScrapeResult:
+        cfg = SITE_CONFIGS.get(domain_key)
+        if not cfg:
+            logger.warning(f"No config for: {domain_key}")
+            return ScrapeResult(domain=domain_key, errors=1)
+
+        result = ScrapeResult(domain=domain_key)
+        start = datetime.now()
+
+        extraction = JsonCssExtractionStrategy(cfg["schema"], verbose=False)
+        run_cfg = CrawlerRunConfig(
+            extraction_strategy=extraction,
+            cache_mode=CacheMode.BYPASS,
+            wait_until="networkidle",
+            page_timeout=30000,
+            simulate_user=True,
+            magic=True,
+            remove_overlay_elements=True,
+        )
+
+        async with AsyncWebCrawler(config=BROWSER_CONFIG) as crawler:
+            for url in cfg["urls"][:MAX_PAGES_PER_DOMAIN]:
+                for attempt in range(1, MAX_RETRIES + 1):
+                    try:
+                        logger.info(f"[{domain_key}] {url} (attempt {attempt}/{MAX_RETRIES})")
+                        res = await crawler.arun(url=url, config=run_cfg)
+
+                        if not res.success:
+                            logger.warning(f"[{domain_key}] Error: {res.error_message}")
+                            await asyncio.sleep(REQUEST_DELAY * attempt)
+                            continue
+
+                        raw = res.extracted_content
+                        if not raw:
+                            logger.warning(f"[{domain_key}] Empty extraction from {url}")
+                            break
+
+                        items = json.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(items, dict):
+                            items = items.get("properties", [])
+
+                        added, dupes, _ = self.db.insert_multiple_properties(
+                            [_to_db_dict(item, domain_key, url) for item in items if item.get("title")]
+                        )
+                        result.added += added
+                        result.duplicates += dupes
+                        logger.info(f"[{domain_key}] Done: +{added} new, {dupes} dupes")
+                        break
+
+                    except Exception as e:
+                        logger.error(f"[{domain_key}] Attempt {attempt} exception: {e}")
+                        if attempt < MAX_RETRIES:
+                            await asyncio.sleep(REQUEST_DELAY * attempt)
+                        else:
+                            result.errors += 1
+
+                await asyncio.sleep(REQUEST_DELAY)
+
+        result.duration = (datetime.now() - start).total_seconds()
+        self.db.log_crawl(
+            domain=domain_key,
+            status="success" if result.errors == 0 else "partial",
+            records_crawled=result.added + result.duplicates,
+            records_added=result.added,
+            records_updated=0,
+        )
+        return result
 
 
-class GulandScraper(BaseScraper):
-    """Scraper for guland.vn"""
-    
-    def scrape_listings(self) -> List[Dict]:
-        """Scrape listings from Guland"""
-        listings = []
-        try:
-            url = self.domain_config['search_url']
-            soup = self.fetch_page(url)
-            
-            if not soup:
-                return listings
-            
-            # Find property containers (adjust selector)
-            property_items = soup.find_all('div', class_='product-item')
-            
-            logger.info(f"Found {len(property_items)} properties on Guland")
-            
-            for item in property_items:
-                prop = self.parse_property(item)
-                if prop:
-                    listings.append(prop)
-            
-            return listings
-        except Exception as e:
-            logger.error(f"Error scraping Guland: {e}")
-            return listings
-    
-    def parse_property(self, item) -> Optional[Dict]:
-        """Parse property from Guland listing"""
-        try:
-            # Title
-            title_elem = item.find('h3', class_='product-title')
-            title = title_elem.get_text(strip=True) if title_elem else None
-            
-            if not title:
-                return None
-            
-            # URL
-            link_elem = item.find('a', class_='product-link')
-            url = urljoin(self.domain_config['url'], link_elem['href']) if link_elem else None
-            
-            # Price
-            price_elem = item.find('span', class_='product-price')
-            price_str = price_elem.get_text(strip=True) if price_elem else None
-            price = self.parse_price(price_str) if price_str else None
-            
-            # Location
-            location_elem = item.find('span', class_='product-location')
-            location = location_elem.get_text(strip=True) if location_elem else None
-            
-            # Area
-            area_elem = item.find('span', class_='product-area')
-            area_str = area_elem.get_text(strip=True) if area_elem else None
-            area = self.parse_area(area_str) if area_str else None
-            
-            # Description
-            desc_elem = item.find('p', class_='product-description')
-            description = desc_elem.get_text(strip=True) if desc_elem else None
-            
-            return {
-                'property_id': self._extract_id_from_url(url) if url else None,
-                'source_domain': 'guland.vn',
-                'source_url': url,
-                'title': title,
-                'description': description,
-                'price_vnd': price,
-                'price_original': price_str,
-                'location_address': location,
-                'area_sqm': area,
-                'amenities': self.extract_amenities(description or ''),
-                'listing_date': datetime.now().isoformat(),
-            }
-        except Exception as e:
-            logger.debug(f"Error parsing Guland property: {e}")
-            return None
-    
-    @staticmethod
-    def _extract_id_from_url(url: str) -> Optional[str]:
-        """Extract property ID from URL"""
-        try:
-            parts = urlparse(url).path.split('/')
-            return parts[-1] if parts else None
-        except:
-            return None
-
-
-class BatDongSanScraper(BaseScraper):
-    """Scraper for batdongsan.com.vn"""
-    
-    def scrape_listings(self) -> List[Dict]:
-        """Scrape listings from BatDongSan"""
-        listings = []
-        try:
-            url = self.domain_config['search_url']
-            soup = self.fetch_page(url)
-            
-            if not soup:
-                return listings
-            
-            # BatDongSan uses different selectors
-            property_items = soup.find_all('div', class_=['item-info', 'js-listing-item'])
-            
-            if not property_items:
-                property_items = soup.find_all('div', {'data-id': True})
-            
-            logger.info(f"Found {len(property_items)} properties on BatDongSan")
-            
-            for item in property_items:
-                prop = self.parse_property(item)
-                if prop:
-                    listings.append(prop)
-            
-            return listings
-        except Exception as e:
-            logger.error(f"Error scraping BatDongSan: {e}")
-            return listings
-    
-    def parse_property(self, item) -> Optional[Dict]:
-        """Parse property from BatDongSan"""
-        try:
-            # Title
-            title_elem = item.find('h2', class_='item-title')
-            if not title_elem:
-                title_elem = item.find('a')
-            
-            title = title_elem.get_text(strip=True) if title_elem else None
-            
-            if not title:
-                return None
-            
-            # URL
-            url = title_elem.get('href') if title_elem and title_elem.name == 'a' else None
-            if url:
-                url = urljoin(self.domain_config['url'], url)
-            
-            # Price
-            price_elem = item.find('span', class_='item-price')
-            price_str = price_elem.get_text(strip=True) if price_elem else None
-            price = self.parse_price(price_str) if price_str else None
-            
-            # Location
-            location_elem = item.find('span', class_='item-location')
-            location = location_elem.get_text(strip=True) if location_elem else None
-            
-            # Area
-            area_elem = item.find('span', class_='item-area')
-            area_str = area_elem.get_text(strip=True) if area_elem else None
-            area = self.parse_area(area_str) if area_str else None
-            
-            # Description
-            desc_elem = item.find('div', class_='item-description')
-            description = desc_elem.get_text(strip=True) if desc_elem else None
-            
-            return {
-                'property_id': item.get('data-id') or (self._extract_id_from_url(url) if url else None),
-                'source_domain': 'batdongsan.com.vn',
-                'source_url': url,
-                'title': title,
-                'description': description,
-                'price_vnd': price,
-                'price_original': price_str,
-                'location_address': location,
-                'area_sqm': area,
-                'amenities': self.extract_amenities(description or ''),
-                'listing_date': datetime.now().isoformat(),
-            }
-        except Exception as e:
-            logger.debug(f"Error parsing BatDongSan property: {e}")
-            return None
-    
-    @staticmethod
-    def _extract_id_from_url(url: str) -> Optional[str]:
-        """Extract property ID from URL"""
-        try:
-            parts = urlparse(url).path.split('-')
-            # BatDongSan uses ID at the end
-            return parts[-1].split('/')[0] if parts else None
-        except:
-            return None
-
-
-class ScraperFactory:
-    """Factory to create appropriate scraper for domain"""
-    
-    SCRAPER_MAP = {
-        'onehousing': OneHousingScraper,
-        'guland': GulandScraper,
-        'batdongsan': BatDongSanScraper,
-        # Add more scrapers here as implemented
-    }
-    
-    @classmethod
-    def create_scraper(cls, domain_key: str, domain_config: Dict, database: EstateDatabase) -> Optional[BaseScraper]:
-        """Create scraper instance for domain"""
-        scraper_class = cls.SCRAPER_MAP.get(domain_key)
-        
-        if scraper_class:
-            return scraper_class(domain_config, database)
-        else:
-            logger.warning(f"No scraper implementation for {domain_key}")
-            return None
-
-
+# ── Multi-domain orchestrator ─────────────────────────────────────────────────
 class MultiDomainScraper:
-    """Orchestrates scraping across multiple domains"""
-    
     def __init__(self):
-        """Initialize multi-domain scraper"""
-        self.database = EstateDatabase()
-    
-    def scrape_all(self, domains: Dict = None) -> Dict:
-        """Scrape all enabled domains"""
-        if domains is None:
-            domains = PRIORITY_DOMAINS
-        
-        results = {
-            'timestamp': datetime.now().isoformat(),
-            'domains': {},
-            'total_records': 0,
-            'total_added': 0,
+        self.db = get_database()
+        self.scraper = Crawl4AIScraper(self.db)
+
+    def scrape_all(self) -> Dict:
+        return asyncio.run(self._run())
+
+    async def _run(self) -> Dict:
+        domains = list(SITE_CONFIGS.keys())
+        logger.info(f"Scraping {len(domains)} domains via crawl4ai")
+        results = {}
+        for domain in domains:
+            results[domain] = await self.scraper.scrape_domain(domain)
+        return self._summary(results)
+
+    def _summary(self, results: Dict[str, ScrapeResult]) -> Dict:
+        total_added = sum(r.added for r in results.values())
+        total_dupes = sum(r.duplicates for r in results.values())
+        s = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_added": total_added,
+            "total_duplicates": total_dupes,
+            "domains": {
+                k: {"added": v.added, "duplicates": v.duplicates,
+                    "errors": v.errors, "duration_s": round(v.duration, 2)}
+                for k, v in results.items()
+            },
         }
-        
-        for domain_key, domain_config in domains.items():
-            if not domain_config.get('enabled', True):
-                logger.info(f"Skipping disabled domain: {domain_key}")
-                continue
-            
-            logger.info(f"Starting scrape for {domain_key}")
-            start_time = time.time()
-            
-            try:
-                scraper = ScraperFactory.create_scraper(domain_key, domain_config, self.database)
-                
-                if not scraper:
-                    logger.warning(f"Could not create scraper for {domain_key}")
-                    continue
-                
-                # Scrape listings
-                listings = scraper.scrape_listings()
-                
-                # Insert to database
-                total, added, duplicates = self.database.insert_multiple_properties(listings)
-                
-                duration = time.time() - start_time
-                
-                # Log results
-                self.database.log_crawl(
-                    domain=domain_key,
-                    status='success' if added > 0 else 'no_data',
-                    records_crawled=total,
-                    records_added=added,
-                    errors=duplicates,
-                    duration_seconds=duration
-                )
-                
-                results['domains'][domain_key] = {
-                    'total': total,
-                    'added': added,
-                    'duplicates': duplicates,
-                    'duration_seconds': duration,
-                }
-                
-                results['total_records'] += total
-                results['total_added'] += added
-                
-                logger.info(f"Completed {domain_key}: {added} added, {duplicates} duplicates in {duration:.2f}s")
-            
-            except Exception as e:
-                logger.error(f"Error scraping {domain_key}: {e}", exc_info=True)
-                self.database.log_crawl(
-                    domain=domain_key,
-                    status='error',
-                    errors=1,
-                    error_messages=str(e),
-                    duration_seconds=time.time() - start_time
-                )
-        
-        return results
+        print("\n" + "=" * 72)
+        print("SCRAPE RESULTS")
+        print("=" * 72)
+        print(f"Timestamp  : {s['timestamp']}")
+        print(f"Total new  : {total_added}")
+        print(f"Duplicates : {total_dupes}")
+        print("-" * 72)
+        for domain, d in s["domains"].items():
+            icon = "✓" if d["errors"] == 0 else "✗"
+            print(f"{icon} {domain:<18} | +{d['added']:>4} new | {d['duplicates']:>4} dupes | {d['errors']} err | {d['duration_s']:>5.1f}s")
+        print("=" * 72 + "\n")
+        return s
 
 
-if __name__ == '__main__':
-    # Test scraper
-    logging.info("Starting multi-domain scraper")
-    scraper = MultiDomainScraper()
-    
-    # Scrape only first 3 priority domains for testing
-    test_domains = {k: v for k, v in list(PRIORITY_DOMAINS.items())[:3]}
-    results = scraper.scrape_all(test_domains)
-    
-    logger.info(f"Scraping completed: {results}")
-    print(f"\nResults: {results}")
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _clean(val: Optional[str]) -> Optional[str]:
+    if not val:
+        return None
+    return re.sub(r"\s+", " ", str(val)).strip() or None
+
+
+def _infer_type(title: str) -> str:
+    t = title.lower()
+    if any(k in t for k in ["căn hộ", "chung cư", "apartment", "cc"]):
+        return "apartment"
+    if any(k in t for k in ["đất", "land", "lô đất"]):
+        return "land"
+    if any(k in t for k in ["villa", "biệt thự"]):
+        return "villa"
+    if any(k in t for k in ["nhà phố", "townhouse"]):
+        return "townhouse"
+    return "house"
+
+
+def _to_db_dict(item: Dict, domain: str, source_url: str) -> Dict:
+    title = _clean(item.get("title")) or ""
+    url = item.get("url") or ""
+    if url and not url.startswith("http"):
+        base = "/".join(source_url.split("/")[:3])  # e.g. https://alonhadat.com.vn
+        url = base + "/" + url.lstrip("/")
+    return {
+        "title": title,
+        "price": _clean(item.get("price")),
+        "area": _clean(item.get("area")),
+        "address": _clean(item.get("location")),
+        "source_domain": domain,
+        "source_url": url or source_url,
+        "property_type": _infer_type(title),
+        "scraped_at": datetime.utcnow().isoformat(),
+    }
